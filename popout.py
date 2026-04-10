@@ -1,3 +1,5 @@
+import random
+import math
 import copy
 
 class Poupout:
@@ -18,9 +20,11 @@ class Poupout:
         self.last_move=None
     
     def display(self):
+        print("  " + " ".join(str(i) for i in range(self.cols)))
         for r in range(self.rows):
+            print("  ", end="")
             for c in range(self.cols):
-                print(self.board[c][r],end="")
+                print(self.board[c][r], end="")
             print("")
 
     def put(self, column):
@@ -190,32 +194,201 @@ class Poupout:
                     self.repeated=True
                     return True
         return False
-
-jogo=Poupout(6,7)
-states=[]
-states_dict=dict()
-for i in range(jogo.rows*jogo.cols):
-    states.append([])
-    states_dict[i]=0
-states[jogo.n_pieces].append(copy.deepcopy(jogo.board))
-states_dict[jogo.n_pieces]+=1
-while True:
-    jogo.display()
-    if jogo.check_win()!=None:
-        print(f"Parabens {jogo.check_win()} ganhou!")
-        break
-    if jogo.check_full() or jogo.check_repeat(states,states_dict):
-        empate=input("Declarar empate?")
-        if empate=="y":
-            break
-    jogada=False
-    while not jogada:
-        move=input("")
-        action=move.split()[0]
-        col=int(move.split()[1])
-        jogada=False
-        jogada = jogo.make_move(action,col)
-    states[jogo.n_pieces].append(copy.deepcopy(jogo.board))
-    states_dict[jogo.n_pieces]+=1
-    jogo.change_to_move()
     
+    def clone(self):
+        """Cópia profunda do estado — usada nas simulações do MCTS."""
+        new = Poupout(self.rows, self.cols, self.moved, self.to_move)
+        new.board = copy.deepcopy(self.board)
+        new.n_pieces = self.n_pieces
+        new.repeated = self.repeated
+        new.last_move = self.last_move
+        # não copiamos states/states_dict para poupar memória nas simulações
+        return new
+
+    def legal_moves(self):
+        """Retorna lista de (ação, coluna) possíveis para o jogador actual."""
+        moves = []
+        for c in range(self.cols):
+            if self.board[c][0] == "-":           # drop: coluna não cheia
+                moves.append(("put", c))
+            if self.board[c][-1] == self.to_move: # pop: peça própria no fundo
+                moves.append(("pop", c))
+        return moves
+
+    def is_terminal(self):
+        """True se o jogo acabou."""
+        return (self.check_win() is not None
+                or self.check_full()
+                or self.repeated
+                or len(self.legal_moves()) == 0)
+
+    def get_result(self, maximizing_player):
+        """
+        Retorna o resultado do ponto de vista de maximizing_player:
+          +1 vitória, -1 derrota, 0 empate
+        """
+        winner = self.check_win()
+        if winner == maximizing_player:
+            return 1
+        if winner is not None:
+            return -1
+        return 0  # empate
+    
+class MCTSNode:
+    def __init__(self, game_state, parent=None, move=None):
+        self.state    = game_state   # instância Poupout (clonada)
+        self.parent   = parent
+        self.move     = move         # (ação, coluna) que originou este nó
+        self.children = []
+        self.wins     = 0.0
+        self.visits   = 0
+        # movimentos ainda não expandidos
+        self._untried = game_state.legal_moves()
+        random.shuffle(self._untried)
+
+    def is_fully_expanded(self):
+        return len(self._untried) == 0
+
+    def uct_score(self, c=math.sqrt(2)):
+        if self.visits == 0:
+            return float('inf')
+        return (self.wins / self.visits
+                + c * math.sqrt(math.log(self.parent.visits) / self.visits))
+
+    def best_child(self, c=math.sqrt(2)):
+        return max(self.children, key=lambda n: n.uct_score(c))
+
+class MCTS:
+    def __init__(self, iterations=600, c=math.sqrt(2), max_depth=40):
+        self.iterations = iterations
+        self.c          = c
+        self.max_depth  = max_depth
+
+    def choose_move(self, game_state):
+        """Ponto de entrada: recebe o estado actual, devolve (ação, coluna)."""
+        root = MCTSNode(game_state.clone())
+
+        for _ in range(self.iterations):
+            node   = self._select(root)
+            if not node.state.is_terminal():
+                node = self._expand(node)
+            result = self._simulate(node, game_state.to_move)
+            self._backpropagate(node, result, game_state.to_move)
+
+        # escolhe o filho com MAIS VISITAS (mais robusto que maior win-rate)
+        best = max(root.children, key=lambda n: n.visits)
+        return best.move
+
+    # ── SELECTION ─────────────────────────────────────
+    def _select(self, node):
+        while not node.state.is_terminal() and node.is_fully_expanded():
+            node = node.best_child(self.c)
+        return node
+
+    # ── EXPANSION ─────────────────────────────────────
+    def _expand(self, node):
+        if node._untried:
+            move     = node._untried.pop()
+            new_game = node.state.clone()
+            new_game.make_move(move[0], move[1])
+            new_game.change_to_move()
+            child = MCTSNode(new_game, parent=node, move=move)
+            node.children.append(child)
+            return child
+        return node
+
+    # ── SIMULATION (rollout aleatório) ─────────────────
+    def _simulate(self, node, original_player):
+        sim   = node.state.clone()
+        depth = 0
+        while not sim.is_terminal() and depth < self.max_depth:
+            moves = sim.legal_moves()
+            if not moves:
+                break
+            action, col = random.choice(moves)
+            sim.make_move(action, col)
+            sim.change_to_move()
+            depth += 1
+        return sim.get_result(original_player)
+
+    # ── BACKPROPAGATION ────────────────────────────────
+    def _backpropagate(self, node, result, original_player):
+        while node is not None:
+            node.visits += 1
+            # o nó pertence ao jogador que jogou para chegar aqui
+            node_player = node.state.moved  # quem acabou de jogar
+            if node_player == original_player:
+                node.wins += result          # +1, -1, ou 0
+            else:
+                node.wins -= result          # perspectiva inversa
+            node = node.parent
+
+
+# ─────────────────────────────────────────────────────────
+#  LOOP PRINCIPAL — com selecção de modo no início
+# ─────────────────────────────────────────────────────────
+
+def main():
+    print("=== PopOut ===")
+    print("Modos disponíveis:")
+    print("  1 - Humano vs Humano")
+    print("  2 - Humano (X) vs IA (O)")
+    print("  3 - IA vs IA")
+
+    modo = ""
+    while modo not in ("1", "2", "3"):
+        modo = input("Escolhe o modo [1/2/3]: ").strip()
+
+    ai_x = MCTS(iterations=600) if modo == "3" else None
+    ai_o = MCTS(iterations=600) if modo in ("2", "3") else None
+
+    jogo = Poupout(6, 7)
+    states = []
+    states_dict = dict()
+    for i in range(jogo.rows * jogo.cols):
+        states.append([])
+        states_dict[i] = 0
+    states[jogo.n_pieces].append(copy.deepcopy(jogo.board))
+    states_dict[jogo.n_pieces] += 1
+
+    while True:
+        jogo.display()
+
+        # verificar fim de jogo
+        if jogo.check_win() is not None:
+            print(f"Parabéns, {jogo.check_win()} ganhou!")
+            break
+        if jogo.check_full() or jogo.check_repeat(states, states_dict):
+            empate = input("Declarar empate? [y/n]: ").strip()
+            if empate == "y":
+                print("Empate!")
+                break
+
+        # decidir quem joga agora
+        ai_actual = ai_x if jogo.to_move == "X" else ai_o
+
+        jogada = False
+        while not jogada:
+            if ai_actual is not None:
+                print(f"IA ({jogo.to_move}) a pensar...")
+                action, col = ai_actual.choose_move(jogo)
+                print(f"  -> IA jogou: {action} coluna {col}")
+                jogada = jogo.make_move(action, col)
+            else:
+                entrada = input(f"Jogador {jogo.to_move} [ex: put 3 / pop 2]: ").strip()
+                try:
+                    parts  = entrada.split()
+                    action = parts[0]
+                    col    = int(parts[1])
+                    jogada = jogo.make_move(action, col)
+                    if not jogada:
+                        print("  Movimento inválido, tenta de novo.")
+                except (IndexError, ValueError):
+                    print("  Formato inválido. Usa: put 3  ou  pop 2")
+
+        states[jogo.n_pieces].append(copy.deepcopy(jogo.board))
+        states_dict[jogo.n_pieces] += 1
+        jogo.change_to_move()
+
+
+main()
