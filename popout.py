@@ -139,7 +139,7 @@ class Poupout:
     def check_diag2(self,row,col):
         counts={"X":0,"O":0}
         winners={"X":False, "O":False}
-        for i in range(min(self.rows-row,col)):
+        for i in range(min(self.rows-row,col+1)):
             if self.board[col-i][row+i]=="X":
                 counts["X"]+=1
                 counts["O"]=0
@@ -160,27 +160,100 @@ class Poupout:
         return None
     
     def check_win(self):
+        adversary_win=False
         for r in range(self.rows):
             winner=self.check_row(r)
-            if winner!=None:
+            if winner == self.moved:
                 return winner
+            else:
+                adversary_win=True
             winner=self.check_diag1(r,0)
-            if winner!=None:
+            if winner == self.moved:
                 return winner
+            else:
+                adversary_win=True
             winner=self.check_diag2(r,self.cols-1)
-            if winner!=None:
+            if winner == self.moved:
                 return winner
+            else:
+                adversary_win=True
         for c in range(self.cols):
             winner=self.check_col(c)
-            if winner!=None:
+            if winner == self.moved:
                 return winner
+            else:
+                adversary_win=True
             winner=self.check_diag1(0,c)
-            if winner!=None:
+            if winner == self.moved:
                 return winner
+            else:
+                adversary_win=True
             winner=self.check_diag2(0,c)
-            if winner!=None:
+            if winner == self.moved:
                 return winner
+            else:
+                adversary_win=True
+        if adversary_win:
+            return self.to_move
         return None
+    
+    def fast_check_win(self):
+        adversary_win=False
+        try:
+            move, column=self.last_move
+            if move=="put":
+                r=self.board[column].index(self.moved)
+                winner=self.check_row(r)
+                if winner is not None:
+                    return winner
+                c=column
+                winner=self.check_col(c)
+                if winner is not None:
+                    return winner    
+                winner=self.check_diag1(max(0,r-c),max(0,c-r))
+                if winner is not None:
+                    return winner
+                winner=self.check_diag2(max(0,r+c-self.cols+1),min(self.cols-1,r+c))
+                if winner is not None:
+                    return winner
+            if move=="pop":
+                for r in range(self.rows):
+                    winner=self.check_row(r)
+                    if winner == self.moved:
+                        return winner
+                    else:
+                        adversary_win=True
+                    winner=self.check_diag1(r,0)
+                    if winner == self.moved:
+                        return winner
+                    else:
+                        adversary_win=True
+                    winner=self.check_diag2(r,self.cols-1)
+                    if winner == self.moved:
+                        return winner
+                    else:
+                        adversary_win=True
+                winner=self.check_col(column)
+                if winner == self.moved:
+                    return winner
+                else:
+                    adversary_win=True
+                for c in range(self.cols):
+                    winner=self.check_diag1(0,c)
+                    if winner == self.moved:
+                        return winner
+                    else:
+                        adversary_win=True
+                    winner=self.check_diag2(0,c)
+                    if winner == self.moved:
+                        return winner
+                    else:
+                        adversary_win=True
+            if adversary_win:
+                return self.to_move
+            return None
+        except:
+            return None
     
     def check_full(self):
         return self.n_pieces==self.rows*self.cols
@@ -217,7 +290,7 @@ class Poupout:
 
     def is_terminal(self):
         """True se o jogo acabou."""
-        return (self.check_win() is not None
+        return (self.fast_check_win() is not None
                 or self.check_full()
                 or self.repeated
                 or len(self.legal_moves()) == 0)
@@ -227,7 +300,7 @@ class Poupout:
         Retorna o resultado do ponto de vista de maximizing_player:
           +1 vitória, -1 derrota, 0 empate
         """
-        winner = self.check_win()
+        winner = self.fast_check_win()
         if winner == maximizing_player:
             return 1
         if winner is not None:
@@ -339,8 +412,8 @@ def main():
     while modo not in ("1", "2", "3"):
         modo = input("Escolhe o modo [1/2/3]: ").strip()
 
-    ai_x = MCTS(iterations=600) if modo == "3" else None
-    ai_o = MCTS(iterations=600) if modo in ("2", "3") else None
+    ai_x = MCTS(iterations=2000) if modo == "3" else None
+    ai_o = MCTS(iterations=2000) if modo in ("2", "3") else None
 
     jogo = Poupout(6, 7)
     states = []
@@ -355,8 +428,8 @@ def main():
         jogo.display()
 
         # verificar fim de jogo
-        if jogo.check_win() is not None:
-            print(f"Parabéns, {jogo.check_win()} ganhou!")
+        if jogo.fast_check_win() is not None:
+            print(f"Parabéns, {jogo.fast_check_win()} ganhou!")
             break
         if jogo.check_full() or jogo.check_repeat(states, states_dict):
             empate = input("Declarar empate? [y/n]: ").strip()
