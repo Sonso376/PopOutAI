@@ -17,6 +17,7 @@ class Poupout:
         self.n_pieces=0
         self.repeated=False
         self.last_move=None
+        self.draw=False
     
     def display(self):
         print("  " + " ".join(str(i) for i in range(self.cols)))
@@ -57,6 +58,8 @@ class Poupout:
                 self.put(column)
             elif move=="pop":
                 self.pop(column)
+            elif move=="draw":
+                self.draw=True
             else:
                 return False
             self.last_move=(move,column)
@@ -191,14 +194,14 @@ class Poupout:
                 moves.append(("put", c))
             if self.board[c][-1] == self.to_move: # pop: peça própria no fundo
                 moves.append(("pop", c))
+        if self.repeated or self.check_full():
+            moves.append(("draw",0))
         return moves
 
     def is_terminal(self):
         """True se o jogo acabou."""
         return (self.check_win() is not None
-                or self.check_full()
-                or self.repeated
-                or len(self.legal_moves()) == 0)
+                or self.draw)
 
     def get_result(self, maximizing_player):
         """
@@ -210,7 +213,8 @@ class Poupout:
             return 1
         if winner is not None:
             return -1
-        return 0  # empate
+        if self.draw:
+            return 0  # empate
  
 class MCTSNode:
     def __init__(self, game_state, parent=None, move=None):
@@ -267,7 +271,7 @@ class MCTS:
     def _expand(self, node):
         if node._untried:
             move     = node._untried.pop()
-            new_game = node.state.clone()
+            new_game = node.state.clone()  
             new_game.make_move(move[0], move[1])
             new_game.change_to_move()
             child = MCTSNode(new_game, parent=node, move=move)
@@ -317,8 +321,8 @@ def main():
     while modo not in ("1", "2", "3"):
         modo = input("Escolhe o modo [1/2/3]: ").strip()
 
-    ai_x = MCTS(iterations=2000) if modo == "3" else None
-    ai_o = MCTS(iterations=2000) if modo in ("2", "3") else None
+    ai_x = MCTS(iterations=int(input("Iteraçoes de X: "))) if modo == "3" else None
+    ai_o = MCTS(iterations=int(input("Iteraçoes de O: "))) if modo in ("2", "3") else None
 
     jogo = Poupout(6, 7)
     states = []
@@ -336,11 +340,9 @@ def main():
         if jogo.fast_check_win() is not None:
             print(f"Parabéns, {jogo.fast_check_win()} ganhou!")
             break
-        if jogo.check_full() or jogo.check_repeat(states, states_dict):
-            empate = input("Declarar empate? [y/n]: ").strip()
-            if empate == "y":
-                print("Empate!")
-                break
+        if jogo.draw:
+            print("Empate!")
+            break
 
         # decidir quem joga agora
         ai_actual = ai_x if jogo.to_move == "X" else ai_o
