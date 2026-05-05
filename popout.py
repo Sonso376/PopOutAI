@@ -58,7 +58,7 @@ class Poupout:
                 self.put(column)
             elif move=="pop":
                 self.pop(column)
-            elif move=="draw":
+            elif move=="draw" and (self.repeated or self.check_full()):
                 self.draw=True
             else:
                 return False
@@ -213,7 +213,7 @@ class Poupout:
             return 1
         if winner is not None:
             return -1
-        if self.draw:
+        else:
             return 0  # empate
  
 class MCTSNode:
@@ -337,8 +337,8 @@ def main():
         jogo.display()
 
         # verificar fim de jogo
-        if jogo.fast_check_win() is not None:
-            print(f"Parabéns, {jogo.fast_check_win()} ganhou!")
+        if jogo.check_win() is not None:
+            print(f"Parabéns, {jogo.check_win()} ganhou!")
             break
         if jogo.draw:
             print("Empate!")
@@ -355,6 +355,8 @@ def main():
                 print(f"  -> IA jogou: {action} coluna {col}")
                 jogada = jogo.make_move(action, col)
             else:
+                if jogo.repeated or jogo.check_full():
+                    print("É possível empatar o jogo [draw 0]")
                 entrada = input(f"Jogador {jogo.to_move} [ex: put 3 / pop 2]: ").strip()
                 try:
                     parts  = entrada.split()
@@ -368,6 +370,7 @@ def main():
 
         states[jogo.n_pieces].append(copy.deepcopy(jogo.board))
         states_dict[jogo.n_pieces] += 1
+        jogo.check_repeat(states=states, states_dict=states_dict)
         jogo.change_to_move()
 
 
