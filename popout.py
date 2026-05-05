@@ -9,7 +9,6 @@ class Poupout:
         self.moved=moved
         self.to_move=to_move
         self.board=list()
-        self.states=list()
         for c in range(cols):
             line=list()
             for r in range(rows):
@@ -18,6 +17,7 @@ class Poupout:
         self.n_pieces=0
         self.repeated=False
         self.last_move=None
+        self.draw=False
     
     def display(self):
         print("  " + " ".join(str(i) for i in range(self.cols)))
@@ -30,16 +30,16 @@ class Poupout:
     def put(self, column):
         if self.board[column][0]!="-":
             raise Exception("Ação impossível")
-        i=0
+        i=self.rows-1
         while True:
-            if i==self.rows:
+            if i<0:
                 return
-            if self.board[column][-1-i]=="-":
-                self.board[column][-1-i]=self.to_move
+            if self.board[column][i]=="-":
+                self.board[column][i]=self.to_move
                 self.n_pieces+=1
                 return
             else:
-                i+=1
+                i-=1
     
     def pop(self, column):
         if self.board[column][-1]!=self.to_move:
@@ -56,10 +56,10 @@ class Poupout:
         try:
             if move=="put":
                 self.put(column)
-                self.states.append(copy.deepcopy(self.board))
             elif move=="pop":
                 self.pop(column)
-                self.states.append(copy.deepcopy(self.board))
+            elif move=="draw" and (self.repeated or self.check_full()):
+                self.draw=True
             else:
                 return False
             self.last_move=(move,column)
@@ -68,192 +68,100 @@ class Poupout:
             return False
         
     def check_row(self, row):
-        counts={"X":0,"O":0}
-        winners={"X":False, "O":False}
-        for c in range(self.cols):
-            if self.board[c][row]=="X":
-                counts["X"]+=1
-                counts["O"]=0
-            elif self.board[c][row]=="O":
-                counts["X"]=0
-                counts["O"]+=1
-            else:
-                counts["X"]=0
-                counts["O"]=0
-            if counts["X"]>=4:
-                winners["X"]=True
-            elif counts["O"]>=4:
-                winners["O"]=True
-        if winners[self.moved]:
+        line=""
+        for i in range(self.cols):
+            line+=self.board[i][row]
+        moved=self.moved*4
+        if line.find(moved)!=-1:
             return self.moved
-        elif winners[self.to_move]:
+        to_move=self.to_move*4
+        if line.find(to_move)!=-1:
             return self.to_move
         return None
     
     def check_col(self, col):
-        counts={"X":0,"O":0}
-        winners={"X":False, "O":False}
-        for r in range(self.rows):
-            if self.board[col][r]=="X":
-                counts["X"]+=1
-                counts["O"]=0
-            elif self.board[col][r]=="O":
-                counts["X"]=0
-                counts["O"]+=1
-            else:
-                counts["X"]=0
-                counts["O"]=0
-            if counts["X"]>=4:
-                winners["X"]=True
-            elif counts["O"]>=4:
-                winners["O"]=True
-        if winners[self.moved]:
+        line=""
+        for i in range(self.rows):
+            line+=self.board[col][i]
+        moved=self.moved*4
+        if line.find(moved)!=-1:
             return self.moved
-        elif winners[self.to_move]:
+        to_move=self.to_move*4
+        if line.find(to_move)!=-1:
             return self.to_move
         return None
 
     def check_diag1(self,row,col):
-        counts={"X":0,"O":0}
-        winners={"X":False, "O":False}
-        for i in range(min(self.rows-row,self.cols-col)):
-            if self.board[col+i][row+i]=="X":
-                counts["X"]+=1
-                counts["O"]=0
-            elif self.board[col+i][row+i]=="O":
-                counts["X"]=0
-                counts["O"]+=1
-            else:
-                counts["X"]=0
-                counts["O"]=0
-            if counts["X"]>=4:
-                winners["X"]=True
-            elif counts["O"]>=4:
-                winners["O"]=True
-        if winners[self.moved]:
+        cells=min(self.rows-row,self.cols-col)
+        if cells<4:
+            return None
+        line=""
+        for i in range(cells):
+            line+=self.board[col+i][row+i]
+        moved=self.moved*4
+        if line.find(moved)!=-1:
             return self.moved
-        elif winners[self.to_move]:
+        to_move=self.to_move*4
+        if line.find(to_move)!=-1:
             return self.to_move
         return None
     
     def check_diag2(self,row,col):
-        counts={"X":0,"O":0}
-        winners={"X":False, "O":False}
-        for i in range(min(self.rows-row,col+1)):
-            if self.board[col-i][row+i]=="X":
-                counts["X"]+=1
-                counts["O"]=0
-            elif self.board[col-i][row+i]=="O":
-                counts["X"]=0
-                counts["O"]+=1
-            else:
-                counts["X"]=0
-                counts["O"]=0
-            if counts["X"]>=4:
-                winners["X"]=True
-            elif counts["O"]>=4:
-                winners["O"]=True
-        if winners[self.moved]:
+        cells=min(self.rows-row,col+1)
+        if cells<4:
+            return None
+        line=""
+        for i in range(cells):
+            line+=self.board[col-i][row+i]
+        moved=self.moved*4
+        if line.find(moved)!=-1:
             return self.moved
-        elif winners[self.to_move]:
+        to_move=self.to_move*4
+        if line.find(to_move)!=-1:
             return self.to_move
         return None
-    
+        
     def check_win(self):
+        if self.last_move is None:
+            return None
+        move, column= self.last_move
         adversary_win=False
-        for r in range(self.rows):
-            winner=self.check_row(r)
-            if winner == self.moved:
+        if move=="put":
+            row=self.board[column].index(self.moved)
+            winner=self.check_row(row)
+            if winner is not None:
                 return winner
-            else:
-                adversary_win=True
-            winner=self.check_diag1(r,0)
-            if winner == self.moved:
+            winner=self.check_col(column)
+            if winner is not None:
+                return winner    
+            winner=self.check_diag1(max(0,row-column),max(0,column-row))
+            if winner is not None:
                 return winner
-            else:
-                adversary_win=True
-            winner=self.check_diag2(r,self.cols-1)
-            if winner == self.moved:
+            winner=self.check_diag2(max(0,row-(self.cols-1-column)),min(self.cols-1,row+column))
+            if winner is not None:
                 return winner
-            else:
-                adversary_win=True
-        for c in range(self.cols):
-            winner=self.check_col(c)
-            if winner == self.moved:
-                return winner
-            else:
-                adversary_win=True
-            winner=self.check_diag1(0,c)
-            if winner == self.moved:
-                return winner
-            else:
-                adversary_win=True
-            winner=self.check_diag2(0,c)
-            if winner == self.moved:
-                return winner
-            else:
-                adversary_win=True
+        if move=="pop":
+            for row in range(self.rows-1, -1, -1):
+                if self.board[column][row]=="-":
+                    break
+                winner=self.check_row(row)
+                if winner == self.moved:
+                    return winner
+                elif winner==self.to_move:
+                    adversary_win=True
+                winner=self.check_diag1(max(0,row-column),max(0,column-row))
+                if winner == self.moved:
+                    return winner
+                elif winner==self.to_move:
+                    adversary_win=True
+                winner=self.check_diag2(max(0,row-(self.cols-1-column)),min(self.cols-1,row+column))
+                if winner == self.moved:
+                    return winner
+                elif winner==self.to_move:
+                    adversary_win=True
         if adversary_win:
             return self.to_move
         return None
-    
-    def fast_check_win(self):
-        adversary_win=False
-        try:
-            move, column=self.last_move
-            if move=="put":
-                r=self.board[column].index(self.moved)
-                winner=self.check_row(r)
-                if winner is not None:
-                    return winner
-                c=column
-                winner=self.check_col(c)
-                if winner is not None:
-                    return winner    
-                winner=self.check_diag1(max(0,r-c),max(0,c-r))
-                if winner is not None:
-                    return winner
-                winner=self.check_diag2(max(0,r+c-self.cols+1),min(self.cols-1,r+c))
-                if winner is not None:
-                    return winner
-            if move=="pop":
-                for r in range(self.rows):
-                    winner=self.check_row(r)
-                    if winner == self.moved:
-                        return winner
-                    else:
-                        adversary_win=True
-                    winner=self.check_diag1(r,0)
-                    if winner == self.moved:
-                        return winner
-                    else:
-                        adversary_win=True
-                    winner=self.check_diag2(r,self.cols-1)
-                    if winner == self.moved:
-                        return winner
-                    else:
-                        adversary_win=True
-                winner=self.check_col(column)
-                if winner == self.moved:
-                    return winner
-                else:
-                    adversary_win=True
-                for c in range(self.cols):
-                    winner=self.check_diag1(0,c)
-                    if winner == self.moved:
-                        return winner
-                    else:
-                        adversary_win=True
-                    winner=self.check_diag2(0,c)
-                    if winner == self.moved:
-                        return winner
-                    else:
-                        adversary_win=True
-            if adversary_win:
-                return self.to_move
-            return None
-        except:
-            return None
     
     def check_full(self):
         return self.n_pieces==self.rows*self.cols
@@ -286,27 +194,28 @@ class Poupout:
                 moves.append(("put", c))
             if self.board[c][-1] == self.to_move: # pop: peça própria no fundo
                 moves.append(("pop", c))
+        if self.repeated or self.check_full():
+            moves.append(("draw",0))
         return moves
 
     def is_terminal(self):
         """True se o jogo acabou."""
-        return (self.fast_check_win() is not None
-                or self.check_full()
-                or self.repeated
-                or len(self.legal_moves()) == 0)
+        return (self.check_win() is not None
+                or self.draw)
 
     def get_result(self, maximizing_player):
         """
         Retorna o resultado do ponto de vista de maximizing_player:
           +1 vitória, -1 derrota, 0 empate
         """
-        winner = self.fast_check_win()
+        winner = self.check_win()
         if winner == maximizing_player:
             return 1
         if winner is not None:
             return -1
-        return 0  # empate
-    
+        else:
+            return 0  # empate
+ 
 class MCTSNode:
     def __init__(self, game_state, parent=None, move=None):
         self.state    = game_state   # instância Poupout (clonada)
@@ -362,7 +271,7 @@ class MCTS:
     def _expand(self, node):
         if node._untried:
             move     = node._untried.pop()
-            new_game = node.state.clone()
+            new_game = node.state.clone()  
             new_game.make_move(move[0], move[1])
             new_game.change_to_move()
             child = MCTSNode(new_game, parent=node, move=move)
@@ -412,8 +321,8 @@ def main():
     while modo not in ("1", "2", "3"):
         modo = input("Escolhe o modo [1/2/3]: ").strip()
 
-    ai_x = MCTS(iterations=2000) if modo == "3" else None
-    ai_o = MCTS(iterations=2000) if modo in ("2", "3") else None
+    ai_x = MCTS(iterations=int(input("Iteraçoes de X: "))) if modo == "3" else None
+    ai_o = MCTS(iterations=int(input("Iteraçoes de O: "))) if modo in ("2", "3") else None
 
     jogo = Poupout(6, 7)
     states = []
@@ -428,14 +337,12 @@ def main():
         jogo.display()
 
         # verificar fim de jogo
-        if jogo.fast_check_win() is not None:
-            print(f"Parabéns, {jogo.fast_check_win()} ganhou!")
+        if jogo.check_win() is not None:
+            print(f"Parabéns, {jogo.check_win()} ganhou!")
             break
-        if jogo.check_full() or jogo.check_repeat(states, states_dict):
-            empate = input("Declarar empate? [y/n]: ").strip()
-            if empate == "y":
-                print("Empate!")
-                break
+        if jogo.draw:
+            print("Empate!")
+            break
 
         # decidir quem joga agora
         ai_actual = ai_x if jogo.to_move == "X" else ai_o
@@ -448,6 +355,8 @@ def main():
                 print(f"  -> IA jogou: {action} coluna {col}")
                 jogada = jogo.make_move(action, col)
             else:
+                if jogo.repeated or jogo.check_full():
+                    print("É possível empatar o jogo [draw 0]")
                 entrada = input(f"Jogador {jogo.to_move} [ex: put 3 / pop 2]: ").strip()
                 try:
                     parts  = entrada.split()
@@ -461,6 +370,7 @@ def main():
 
         states[jogo.n_pieces].append(copy.deepcopy(jogo.board))
         states_dict[jogo.n_pieces] += 1
+        jogo.check_repeat(states=states, states_dict=states_dict)
         jogo.change_to_move()
 
 
