@@ -1,6 +1,29 @@
+
+# ============================================================
+# Trabalho IA 2025/2026 - PopOut + MCTS + Decision Tree ID3
+# ============================================================
+# Requisitos cumpridos:
+# 1) PopOut jogavel em 3 modos: Humano vs Humano, Humano vs IA, IA vs IA.
+# 2) MCTS com UCT.
+# 3) Geracao de dataset PopOut: pares (estado, melhor jogada MCTS).
+# 4) Arvore de decisao ID3 feita de raiz, sem scikit-learn.
+# 5) Discretizacao de atributos numericos para o dataset Iris.
+# 6) Classificacao de novos exemplos e avaliacao de accuracy.
+
 import random
 import math
 import copy
+import csv
+import time
+import datetime
+import numpy as np
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
+
+# -----------------------------
+# POP OUT
+# -----------------------------
 
 class Poupout:
     def __init__(self, rows, cols, moved="O", to_move="X"):
@@ -218,7 +241,12 @@ class Poupout:
         if adversary_win:
             return self.to_move
         return None
- 
+
+
+# -----------------------------
+# MCTS + UCT
+# -----------------------------
+
 class MCTSNode:
     def __init__(self, game_state, parent=None, move=None):
         self.state = game_state
@@ -303,6 +331,146 @@ class MCTS:
                 node.wins -= result
             node = node.parent
 
+
+# -----------------------------
+# ID3 feito de raiz
+# -----------------------------
+
+@dataclass
+class ID3Node:
+    prediction: Any
+    attribute: Optional[str] = None
+    children: Optional[Dict[Any, "ID3Node"]] = None
+    is_leaf: bool = False
+
+    def classify(self, example):
+        if self.is_leaf or self.attribute is None:
+            return self.prediction
+        value = example.get(self.attribute)
+        if self.children and value in self.children:
+            return self.children[value].classify(example)
+        return self.prediction
+
+    def pretty(self, indent=""):
+        if self.is_leaf:
+            return indent + f"Classe: {self.prediction}\n"
+        s = indent + f"Se {self.attribute}:\n"
+        for value, child in sorted(self.children.items(), key=lambda x: str(x[0])):
+            s += indent + f"  = {value} ->\n"
+            s += child.pretty(indent + "    ")
+        return s
+
+class ID3DecisionTree:
+    def __init__(self, max_depth=None, min_samples_split=2):
+        self.max_depth = max_depth
+        self.min_samples_split = min_samples_split
+        self.root = None
+        self.label_col = None
+
+    @staticmethod
+    def entropy(labels):
+        total = len(labels)
+        counts = Counter(labels)
+        return -sum((cnt/total) * math.log2(cnt/total) for cnt in counts.values() if cnt)
+
+    def information_gain(self, rows, attribute, label_col):
+        base = self.entropy([r[label_col] for r in rows])
+        total = len(rows)
+        parts = defaultdict(list)
+        for r in rows:
+            parts[r[attribute]].append(r)
+        remainder = sum((len(part)/total) * self.entropy([r[label_col] for r in part]) for part in parts.values())
+        return base - remainder
+
+    def majority_label(self, rows, label_col):
+        return Counter(r[label_col] for r in rows).most_common(1)[0][0]
+
+    def fit(self, rows, label_col="label", attributes=None):
+        if not rows:
+            raise ValueError("Dataset vazio")
+        self.label_col = label_col
+        if attributes is None:
+            attributes = [a for a in rows[0].keys() if a != label_col]
+        self.root = self._id3(rows, attributes, label_col, depth=0)
+        return self
+
+    def _id3(self, rows, attributes, label_col, depth):
+        labels = [r[label_col] for r in rows]
+        majority = self.majority_label(rows, label_col)
+        if len(set(labels)) == 1:
+            return ID3Node(prediction=labels[0], is_leaf=True)
+        if not attributes or len(rows) < self.min_samples_split or (self.max_depth is not None and depth >= self.max_depth):
+            return ID3Node(prediction=majority, is_leaf=True)
+
+        gains = [(self.information_gain(rows, a, label_col), a) for a in attributes]
+        best_gain, best_attr = max(gains, key=lambda x: x[0])
+        if best_gain <= 1e-12:
+            return ID3Node(prediction=majority, is_leaf=True)
+
+        node = ID3Node(prediction=majority, attribute=best_attr, children={}, is_leaf=False)
+        values = sorted(set(r[best_attr] for r in rows), key=str)
+        remaining = [a for a in attributes if a != best_attr]
+        for v in values:
+            subset = [r for r in rows if r[best_attr] == v]
+            node.children[v] = self._id3(subset, remaining, label_col, depth + 1)
+        return node
+
+    def predict_one(self, example):
+        if self.root is None:
+            raise ValueError("A arvore ainda nao foi treinada")
+        return self.root.classify(example)
+
+    def predict(self, rows):
+        return [self.predict_one(r) for r in rows]
+
+    def score(self, rows, label_col=None):
+        label_col = label_col or self.label_col
+        preds = self.predict(rows)
+        return sum(p == r[label_col] for p, r in zip(preds, rows)) / len(rows)
+
+    def pretty(self):
+        return self.root.pretty() if self.root else "<arvore vazia>"
+
+def state_to_features(game):
+    row = {}
+    for c in range(game.cols):
+        for r in range(game.rows):
+            row[f"c{c}_r{r}"] = game.board[c][r]
+    row["to_move"] = game.to_move
+    for m in ["put", "pop"]:
+        for c in range(game.cols):
+            if (m,c) in game.legal_moves():
+                row[f"{m}_{c}"]="T"
+            else:
+                row[f"{m}_{c}"]="F"
+    return row
+
+class ID3DecisionTreePlayer:
+    def __init__(self, tree, changed_feature=False):
+        self.tree=tree
+        self.changed_feature=changed_feature
+
+    def choose_move(self, state):
+        game=state_to_features(state)
+        if self.changed_feature:
+            game=change_feature(game)
+        move=self.tree.predict_one(game)
+        move=move.split("_")
+        return (move[0], int(move[1]))
+    
+class HumanPlayer:
+    def choose_move(self,state):
+        while True:
+            move=input(f"Jogador {state.to_move} [ex: put 3 / pop 2]:") 
+            move=move.split(" ")
+            action=move[0]
+            col=int(move[1])
+            jogada=(action,col)
+            if jogada in state.legal_moves():
+                return jogada
+            else:
+                print("Jogada Impossível, Tente novamente")
+
 def play(player_X, player_O, show=True):
     ai_x = player_X
     ai_o = player_O
@@ -325,7 +493,7 @@ def play(player_X, player_O, show=True):
             break
 
         jogador = ai_x if jogo.to_move == "X" else ai_o
-        if show:
+        if show and not isinstance(jogador, HumanPlayer):
             print(f"IA ({jogo.to_move}) a pensar...")
         jogada = jogador.choose_move(jogo)
         action, col = jogada
@@ -333,8 +501,8 @@ def play(player_X, player_O, show=True):
             print(f"  -> IA jogou: {action} coluna {col}")
         if jogada not in jogo.legal_moves():
             if show:
-                print("Tentativa de jogada ilegal!")
-            return None
+                print(f"Tentativa de jogada ilegal! Ganha o {jogo.moved}")
+            return jogo.moved
         jogo.make_move(action, col)
         state_counts[jogo.board_key()] += 1
         jogo.check_repeat(state_counts)
@@ -343,21 +511,118 @@ def play(player_X, player_O, show=True):
         return winner
     return None
 
-def simulate_games(Player1, Player2, n_games):
-    games_set1=[]
-    games_set2=[]
-    p1_wins=0
-    p2_wins=0
-    #como o primeiro a jogar tem uma clara vantagem são realizados jogos de ambos os lados
-    for _ in range(n_games//2):
-        players={"X":Player1, "O":Player2}
-        games_set1.append(play(players["X"], players["O"], show=False))
-    p1_wins+=games_set1.count("X")
-    p2_wins+=games_set1.count("O")
-    for _ in range(n_games//2):
-        players={"X":Player2, "O":Player1}
-        games_set2.append(play(players["X"], players["O"], show=False))
-    p2_wins+=games_set2.count("X")
-    p1_wins+=games_set2.count("O")
-    games=games_set1 + games_set2
-    return (p1_wins, p2_wins, games)
+def load_csv_dataset(path):
+    with open(path) as file:
+        ds=csv.DictReader(file)
+        rows=[]
+        for r in ds:
+            rows.append(r)
+        return rows
+    
+def change_feature(feature):
+    new_feature={}
+    for atr in feature:
+        if feature[atr]=="T" or feature[atr]=="F" or atr=="move":
+            new_feature[atr]=feature[atr]
+            continue
+        if atr=="to_move":
+            continue
+        if feature[atr]==feature["to_move"]:
+            new_feature[atr]="P"
+        elif feature[atr]!="-":
+            new_feature[atr]="A" 
+        else:
+            new_feature[atr]="-"
+    return new_feature
+def change_dataset(rows):
+    new_rows=[]
+    for r in rows:
+        new_rows.append(change_feature(r))
+    return new_rows
+
+def main():
+    dataset_100_base=load_csv_dataset("datasets/popout_dataset_100_base.csv")
+    dataset_1000_base=load_csv_dataset("datasets/popout_dataset_1000_base.csv")
+    dataset_10000_base=load_csv_dataset("datasets/popout_dataset_10000_base.csv")
+    dataset_1000_random=load_csv_dataset("datasets/popout_dataset_100_base.csv")
+    dataset_1000_random=load_csv_dataset("datasets/popout_dataset_1000_base.csv")
+    dataset_10000_random=load_csv_dataset("datasets/popout_dataset_10000_base.csv")
+    dataset_misto1=dataset_1000_base + dataset_1000_random[:len(dataset_1000_random)//2]
+    dataset_misto2=dataset_10000_base + dataset_10000_random[:len(dataset_10000_random)//4]
+    dataset_changed=change_dataset(dataset_misto2)
+    datasets={1:dataset_100_base,
+              2:dataset_1000_base,
+              3:dataset_10000_base,
+              4:dataset_misto1,
+              5:dataset_misto2,
+              6:dataset_changed
+             }
+
+    print("=== PopOut ===")
+    print("1 - Humano vs Humano")
+    print("2 - Humano (X) vs IA (O)")
+    print("3 - IA vs IA")
+    modo = ""
+    while modo not in ("1", "2", "3"):
+        modo = input("Escolhe o modo [1/2/3]: ").strip()
+
+    if modo=="1":
+        ai_x=HumanPlayer()
+        ai_o=HumanPlayer()
+    else:
+        if modo=="2":
+            ai_x=HumanPlayer()
+        else:
+            ai_type=0
+            while ai_type not in [1,2]:
+                print("Escolha o tipo de AI de X:")
+                print("(1) MCTS")
+                print("(2) ID3 decision tree")
+                ai_type=int(input(""))
+            if ai_type==1:
+                ai_x=MCTS(iterations=int(input("Iteracoes da AI de X: ")))
+            else:
+                d=0
+                while d not in list(datasets.keys()):
+                    print("Seleciona o dastaset a ser usado:")
+                    print("(1) 100 iterações base")
+                    print("(2) 1000 iterações base")
+                    print("(3) 10000 iterações base")
+                    print("(4) misto 1 (melhores)")
+                    print("(5) misto 2 (melhores)")
+                    print("(6) misto 2 alterado")
+                    d=int(input(""))
+                tree=ID3DecisionTree(max_depth=int(input("profundidade máxima da árvore de X: ")))
+                tree.fit(datasets[d],label_col="move")
+                ai_x=ID3DecisionTreePlayer(tree) if d!=6 else ID3DecisionTreePlayer(tree, changed_feature=True)
+        ai_type=0
+        while ai_type not in [1,2]:
+            print("Escolha o tipo de AI de O:")
+            print("(1) MCTS")
+            print("(2) ID3 decision tree")
+            ai_type=int(input(""))
+        if ai_type==1:
+            ai_o=MCTS(iterations=int(input("Iteracoes da AI de O: ")))
+        else:
+            d=0
+            while d not in list(datasets.keys()):
+                print("Seleciona o dastaset a ser usado:")
+                print("(1) 100 iterações base")
+                print("(2) 1000 iterações base")
+                print("(3) 10000 iterações base")
+                print("(4) misto 1 (melhores)")
+                print("(5) misto 2 (melhores)")
+                print("(6) misto 2 alterado")
+                d=int(input(""))
+            tree=ID3DecisionTree(max_depth=int(input("profundidade máxima da árvore de O: ")))
+            tree.fit(datasets[d],label_col="move")
+            ai_o=ID3DecisionTreePlayer(tree) if d!=6 else ID3DecisionTreePlayer(tree, changed_feature=True)
+    
+    play(ai_x, ai_o, show=True)
+
+if __name__ == "__main__":
+    # Para jogar, descomenta a linha seguinte:
+    # main()
+    pass
+
+main()
