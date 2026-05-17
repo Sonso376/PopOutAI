@@ -303,68 +303,61 @@ class MCTS:
                 node.wins -= result
             node = node.parent
 
-def main():
-    print("=== PopOut ===")
-    print("Modos disponíveis:")
-    print("  1 - Humano vs Humano")
-    print("  2 - Humano (X) vs IA (O)")
-    print("  3 - IA vs IA")
-
-    modo = ""
-    while modo not in ("1", "2", "3"):
-        modo = input("Escolhe o modo [1/2/3]: ").strip()
-
-    ai_x = MCTS(iterations=int(input("Iteraçoes de X: "))) if modo == "3" else None
-    ai_o = MCTS(iterations=int(input("Iteraçoes de O: "))) if modo in ("2", "3") else None
+def play(player_X, player_O, show=True):
+    ai_x = player_X
+    ai_o = player_O
 
     jogo = Poupout(6, 7)
-    states = []
-    states_dict = dict()
-    for i in range(jogo.rows * jogo.cols):
-        states.append([])
-        states_dict[i] = 0
-    states[jogo.n_pieces].append(copy.deepcopy(jogo.board))
-    states_dict[jogo.n_pieces] += 1
+    state_counts = defaultdict(int)
+    state_counts[jogo.board_key()] += 1
 
     while True:
-        jogo.display()
-
-        # verificar fim de jogo
-        if jogo.check_win() is not None:
-            print(f"Parabéns, {jogo.check_win()} ganhou!")
+        if show:
+            jogo.display()
+        winner = jogo.check_win()
+        if winner is not None:
+            if show:
+                print(f"Parabens, {winner} ganhou!")
             break
         if jogo.draw:
-            print("Empate!")
+            if show:
+                print("Empate!")
             break
 
-        # decidir quem joga agora
-        ai_actual = ai_x if jogo.to_move == "X" else ai_o
-
-        jogada = False
-        while not jogada:
-            if ai_actual is not None:
-                print(f"IA ({jogo.to_move}) a pensar...")
-                action, col = ai_actual.choose_move(jogo)
-                print(f"  -> IA jogou: {action} coluna {col}")
-                jogada = jogo.make_move(action, col)
-            else:
-                if jogo.repeated or jogo.check_full():
-                    print("É possível empatar o jogo [draw 0]")
-                entrada = input(f"Jogador {jogo.to_move} [ex: put 3 / pop 2]: ").strip()
-                try:
-                    parts  = entrada.split()
-                    action = parts[0]
-                    col    = int(parts[1])
-                    jogada = jogo.make_move(action, col)
-                    if not jogada:
-                        print("  Movimento inválido, tenta de novo.")
-                except (IndexError, ValueError):
-                    print("  Formato inválido. Usa: put 3  ou  pop 2")
-
-        states[jogo.n_pieces].append(copy.deepcopy(jogo.board))
-        states_dict[jogo.n_pieces] += 1
-        jogo.check_repeat(states=states, states_dict=states_dict)
+        jogador = ai_x if jogo.to_move == "X" else ai_o
+        if show:
+            print(f"IA ({jogo.to_move}) a pensar...")
+        jogada = jogador.choose_move(jogo)
+        action, col = jogada
+        if show:
+            print(f"  -> IA jogou: {action} coluna {col}")
+        if jogada not in jogo.legal_moves():
+            if show:
+                print("Tentativa de jogada ilegal!")
+            return None
+        jogo.make_move(action, col)
+        state_counts[jogo.board_key()] += 1
+        jogo.check_repeat(state_counts)
         jogo.change_to_move()
+    if winner is not None:
+        return winner
+    return None
 
-
-main()
+def simulate_games(Player1, Player2, n_games):
+    games_set1=[]
+    games_set2=[]
+    p1_wins=0
+    p2_wins=0
+    #como o primeiro a jogar tem uma clara vantagem são realizados jogos de ambos os lados
+    for _ in range(n_games//2):
+        players={"X":Player1, "O":Player2}
+        games_set1.append(play(players["X"], players["O"], show=False))
+    p1_wins+=games_set1.count("X")
+    p2_wins+=games_set1.count("O")
+    for _ in range(n_games//2):
+        players={"X":Player2, "O":Player1}
+        games_set2.append(play(players["X"], players["O"], show=False))
+    p2_wins+=games_set2.count("X")
+    p1_wins+=games_set2.count("O")
+    games=games_set1 + games_set2
+    return (p1_wins, p2_wins, games)
