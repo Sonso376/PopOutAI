@@ -221,13 +221,12 @@ class Poupout:
  
 class MCTSNode:
     def __init__(self, game_state, parent=None, move=None):
-        self.state    = game_state   # instância Poupout (clonada)
-        self.parent   = parent
-        self.move     = move         # (ação, coluna) que originou este nó
+        self.state = game_state
+        self.parent = parent
+        self.move = move
         self.children = []
-        self.wins     = 0.0
-        self.visits   = 0
-        # movimentos ainda não expandidos
+        self.wins = 0.0
+        self.visits = 0
         self._untried = game_state.legal_moves()
         random.shuffle(self._untried)
 
@@ -236,9 +235,8 @@ class MCTSNode:
 
     def uct_score(self, c=math.sqrt(2)):
         if self.visits == 0:
-            return float('inf')
-        return (self.wins / self.visits
-                + c * math.sqrt(math.log(self.parent.visits) / self.visits))
+            return float("inf")
+        return self.wins / self.visits + c * math.sqrt(math.log(self.parent.visits) / self.visits)
 
     def best_child(self, c=math.sqrt(2)):
         return max(self.children, key=lambda n: n.uct_score(c))
@@ -246,35 +244,31 @@ class MCTSNode:
 class MCTS:
     def __init__(self, iterations=600, c=math.sqrt(2), max_depth=40):
         self.iterations = iterations
-        self.c          = c
-        self.max_depth  = max_depth
+        self.c = c
+        self.max_depth = max_depth
 
     def choose_move(self, game_state):
-        """Ponto de entrada: recebe o estado actual, devolve (ação, coluna)."""
         root = MCTSNode(game_state.clone())
-
+        if not root._untried:
+            return None
+        original_player = game_state.to_move
         for _ in range(self.iterations):
-            node   = self._select(root)
+            node = self._select(root)
             if not node.state.is_terminal():
                 node = self._expand(node)
-            result = self._simulate(node, game_state.to_move)
-            self._backpropagate(node, result, game_state.to_move)
+            result = self._simulate(node, original_player)
+            self._backpropagate(node, result, original_player)
+        return max(root.children, key=lambda n: n.visits).move
 
-        # escolhe o filho com MAIS VISITAS (mais robusto que maior win-rate)
-        best = max(root.children, key=lambda n: n.visits)
-        return best.move
-
-    # ── SELECTION ─────────────────────────────────────
     def _select(self, node):
-        while not node.state.is_terminal() and node.is_fully_expanded():
+        while not node.state.is_terminal() and node.is_fully_expanded() and node.children:
             node = node.best_child(self.c)
         return node
 
-    # ── EXPANSION ─────────────────────────────────────
     def _expand(self, node):
         if node._untried:
-            move     = node._untried.pop()
-            new_game = node.state.clone()  
+            move = node._untried.pop()
+            new_game = node.state.clone()
             new_game.make_move(move[0], move[1])
             new_game.change_to_move()
             child = MCTSNode(new_game, parent=node, move=move)
@@ -282,36 +276,32 @@ class MCTS:
             return child
         return node
 
-    # ── SIMULATION (rollout aleatório) ─────────────────
+    def _rollout_move(self, sim):
+        moves = sim.legal_moves()
+        return random.choice(moves)
+
     def _simulate(self, node, original_player):
-        sim   = node.state.clone()
+        sim = node.state.clone()
         depth = 0
         while not sim.is_terminal() and depth < self.max_depth:
             moves = sim.legal_moves()
             if not moves:
                 break
-            action, col = random.choice(moves)
+            action, col = self._rollout_move(sim)
             sim.make_move(action, col)
             sim.change_to_move()
             depth += 1
         return sim.get_result(original_player)
 
-    # ── BACKPROPAGATION ────────────────────────────────
     def _backpropagate(self, node, result, original_player):
         while node is not None:
             node.visits += 1
-            # o nó pertence ao jogador que jogou para chegar aqui
-            node_player = node.state.moved  # quem acabou de jogar
+            node_player = node.state.moved
             if node_player == original_player:
-                node.wins += result          # +1, -1, ou 0
+                node.wins += result
             else:
-                node.wins -= result          # perspectiva inversa
+                node.wins -= result
             node = node.parent
-
-
-# ─────────────────────────────────────────────────────────
-#  LOOP PRINCIPAL — com selecção de modo no início
-# ─────────────────────────────────────────────────────────
 
 def main():
     print("=== PopOut ===")
