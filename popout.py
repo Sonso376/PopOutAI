@@ -3,22 +3,19 @@ import math
 import copy
 
 class Poupout:
-    def __init__(self,rows,cols,moved="O",to_move="X"):
-        self.rows=rows
-        self.cols=cols
-        self.moved=moved
-        self.to_move=to_move
-        self.board=list()
-        for c in range(cols):
-            line=list()
-            for r in range(rows):
-                line.append("-")
-            self.board.append(line)
-        self.n_pieces=0
-        self.repeated=False
-        self.last_move=None
-        self.draw=False
-    
+    def __init__(self, rows, cols, moved="O", to_move="X"):
+        #informações básicas do tabuleiro
+        self.rows = rows                    
+        self.cols = cols
+        self.moved = moved
+        self.to_move = to_move
+        self.board = [["-" for _ in range(rows)] for _ in range(cols)]
+        #informações adicionais para facilitar implementação de alguns métodos
+        self.n_pieces = 0
+        self.repeated = False
+        self.last_move = None
+        self.draw = False
+
     def display(self):
         print("  " + " ".join(str(i) for i in range(self.cols)))
         for r in range(self.rows):
@@ -27,194 +24,200 @@ class Poupout:
                 print(self.board[c][r], end="")
             print("")
 
+    #usado para a criação do dataset
+    def board_key(self):
+        return tuple(tuple(col) for col in self.board), self.to_move
+
     def put(self, column):
-        if self.board[column][0]!="-":
-            raise Exception("Ação impossível")
-        i=self.rows-1
-        while True:
-            if i<0:
+        if column < 0 or column >= self.cols or self.board[column][0] != "-":
+            raise Exception("Acao impossivel")
+        for i in range(self.rows - 1, -1, -1):
+            if self.board[column][i] == "-":
+                self.board[column][i] = self.to_move
+                self.n_pieces += 1
                 return
-            if self.board[column][i]=="-":
-                self.board[column][i]=self.to_move
-                self.n_pieces+=1
-                return
-            else:
-                i-=1
-    
+
     def pop(self, column):
-        if self.board[column][-1]!=self.to_move:
-            raise Exception("Ação impossível")
-        self.board[column]=["-"] + self.board[column][:-1]
-        self.n_pieces-=1
+        if column < 0 or column >= self.cols or self.board[column][-1] != self.to_move:
+            raise Exception("Acao impossivel")
+        self.board[column] = ["-"] + self.board[column][:-1]
+        self.n_pieces -= 1
 
     def change_to_move(self):
-        temp=self.to_move
-        self.to_move=self.moved
-        self.moved=temp
+        self.to_move, self.moved = self.moved, self.to_move
 
     def make_move(self, move, column):
         try:
-            if move=="put":
+            if move == "put":
                 self.put(column)
-            elif move=="pop":
+            elif move == "pop":
                 self.pop(column)
-            elif move=="draw" and (self.repeated or self.check_full()):
-                self.draw=True
+            elif move == "draw" and (self.repeated or self.check_full()):
+                self.draw = True
             else:
                 return False
-            self.last_move=(move,column)
+            self.last_move = (move, column)
             return True
-        except:
+        except Exception:
             return False
-        
+
     def check_row(self, row):
-        line=""
-        for i in range(self.cols):
-            line+=self.board[i][row]
-        moved=self.moved*4
-        if line.find(moved)!=-1:
+        line = "".join(self.board[c][row] for c in range(self.cols))
+        if self.moved * 4 in line:
             return self.moved
-        to_move=self.to_move*4
-        if line.find(to_move)!=-1:
-            return self.to_move
-        return None
-    
-    def check_col(self, col):
-        line=""
-        for i in range(self.rows):
-            line+=self.board[col][i]
-        moved=self.moved*4
-        if line.find(moved)!=-1:
-            return self.moved
-        to_move=self.to_move*4
-        if line.find(to_move)!=-1:
+        if self.to_move * 4 in line:
             return self.to_move
         return None
 
-    def check_diag1(self,row,col):
-        cells=min(self.rows-row,self.cols-col)
-        if cells<4:
-            return None
-        line=""
-        for i in range(cells):
-            line+=self.board[col+i][row+i]
-        moved=self.moved*4
-        if line.find(moved)!=-1:
+    def check_col(self, col):
+        line = "".join(self.board[col][r] for r in range(self.rows))
+        if self.moved * 4 in line:
             return self.moved
-        to_move=self.to_move*4
-        if line.find(to_move)!=-1:
+        if self.to_move * 4 in line:
             return self.to_move
         return None
-    
-    def check_diag2(self,row,col):
-        cells=min(self.rows-row,col+1)
-        if cells<4:
+
+    def check_diag1(self, row, col):
+        cells = min(self.rows - row, self.cols - col)
+        if cells < 4:
             return None
-        line=""
-        for i in range(cells):
-            line+=self.board[col-i][row+i]
-        moved=self.moved*4
-        if line.find(moved)!=-1:
+        line = "".join(self.board[col + i][row + i] for i in range(cells))
+        if self.moved * 4 in line:
             return self.moved
-        to_move=self.to_move*4
-        if line.find(to_move)!=-1:
+        if self.to_move * 4 in line:
             return self.to_move
         return None
-        
+
+    def check_diag2(self, row, col):
+        cells = min(self.rows - row, col + 1)
+        if cells < 4:
+            return None
+        line = "".join(self.board[col - i][row + i] for i in range(cells))
+        if self.moved * 4 in line:
+            return self.moved
+        if self.to_move * 4 in line:
+            return self.to_move
+        return None
+
     def check_win(self):
         if self.last_move is None:
             return None
-        move, column= self.last_move
-        adversary_win=False
-        if move=="put":
-            row=self.board[column].index(self.moved)
-            winner=self.check_row(row)
-            if winner is not None:
-                return winner
-            winner=self.check_col(column)
-            if winner is not None:
-                return winner    
-            winner=self.check_diag1(max(0,row-column),max(0,column-row))
-            if winner is not None:
-                return winner
-            winner=self.check_diag2(max(0,row-(self.cols-1-column)),min(self.cols-1,row+column))
-            if winner is not None:
-                return winner
-        if move=="pop":
-            for row in range(self.rows-1, -1, -1):
-                if self.board[column][row]=="-":
+        move, column = self.last_move
+        adversary_win = False
+
+        if move == "put":
+            #verificar o local da ultima peça colocada
+            row = None
+            for r in range(self.rows):
+                if self.board[column][r] == self.moved:
+                    row = r
                     break
-                winner=self.check_row(row)
-                if winner == self.moved:
+
+            for f in [lambda: self.check_row(row), lambda: self.check_col(column),
+                      lambda: self.check_diag1(max(0, row - column), max(0, column - row)),
+                      lambda: self.check_diag2(max(0, row - (self.cols - 1 - column)), min(self.cols - 1, row + column))]:
+                winner = f()
+                if winner is not None:
                     return winner
-                elif winner==self.to_move:
-                    adversary_win=True
-                winner=self.check_diag1(max(0,row-column),max(0,column-row))
-                if winner == self.moved:
-                    return winner
-                elif winner==self.to_move:
-                    adversary_win=True
-                winner=self.check_diag2(max(0,row-(self.cols-1-column)),min(self.cols-1,row+column))
-                if winner == self.moved:
-                    return winner
-                elif winner==self.to_move:
-                    adversary_win=True
+
+        elif move == "pop":
+            #verificar a coluna da peça retirada
+            for row in range(self.rows - 1, -1, -1):
+                if self.board[column][row] == "-":
+                    break
+                for f in [lambda row=row: self.check_row(row),
+                          lambda row=row: self.check_diag1(max(0, row - column), max(0, column - row)),
+                          lambda row=row: self.check_diag2(max(0, row - (self.cols - 1 - column)), min(self.cols - 1, row + column))]:
+                    winner = f()
+                    if winner == self.moved:
+                        return winner
+                    if winner == self.to_move:
+                        adversary_win = True
+        #apenas verificar se adversãrio ganhou depois do jogador que jogou
         if adversary_win:
             return self.to_move
         return None
-    
-    def check_full(self):
-        return self.n_pieces==self.rows*self.cols
 
-    def check_repeat(self, states, states_dict):
-        if self.repeated:
-            return True
-        elif states_dict[self.n_pieces]>=3:
-            for s in states[self.n_pieces]:
-                if states[self.n_pieces].count(s)>=3:
-                    self.repeated=True
-                    return True
-        return False
-    
+    def check_full(self):
+        return self.n_pieces == self.rows * self.cols
+
+    def check_repeat(self, state_counts):
+        key = self.board_key()
+        state_counts[key] += 1
+        if state_counts[key] >= 3:
+            self.repeated = True
+        return self.repeated
+
+    #auxiliares para a implementação de MCTS
     def clone(self):
-        """Cópia profunda do estado — usada nas simulações do MCTS."""
         new = Poupout(self.rows, self.cols, self.moved, self.to_move)
         new.board = copy.deepcopy(self.board)
         new.n_pieces = self.n_pieces
         new.repeated = self.repeated
         new.last_move = self.last_move
-        # não copiamos states/states_dict para poupar memória nas simulações
+        new.draw = self.draw
         return new
 
     def legal_moves(self):
-        """Retorna lista de (ação, coluna) possíveis para o jogador actual."""
         moves = []
         for c in range(self.cols):
-            if self.board[c][0] == "-":           # drop: coluna não cheia
+            if self.board[c][0] == "-":
                 moves.append(("put", c))
-            if self.board[c][-1] == self.to_move: # pop: peça própria no fundo
+            if self.board[c][-1] == self.to_move:
                 moves.append(("pop", c))
         if self.repeated or self.check_full():
-            moves.append(("draw",0))
+            moves.append(("draw", 0))
+        return moves
+    
+    def legal_put_moves(self):
+        moves = []
+        for c in range(self.cols):
+            if self.board[c][0] == "-":
+                moves.append(("put", c))
         return moves
 
     def is_terminal(self):
-        """True se o jogo acabou."""
-        return (self.check_win() is not None
-                or self.draw)
+        return self.check_win() is not None or self.draw
 
     def get_result(self, maximizing_player):
-        """
-        Retorna o resultado do ponto de vista de maximizing_player:
-          +1 vitória, -1 derrota, 0 empate
-        """
         winner = self.check_win()
         if winner == maximizing_player:
             return 1
         if winner is not None:
             return -1
-        else:
-            return 0  # empate
+        return 0
+    
+    #auxiliares para criação dos datasets
+    def random_board(self,n_pieces):
+        for _ in range(n_pieces):
+            moves=self.legal_put_moves()
+            move=random.choice(moves)
+            self.make_move(move[0], move[1])
+            self.change_to_move()
+
+    def full_check_win(self):
+        adversary_win=False
+        for r in range(self.rows):
+            for f in [lambda row=r: self.check_row(row),
+                        lambda row=r: self.check_diag1(row,0),
+                        lambda row=r: self.check_diag2(row,self.cols-1)]:
+                    winner = f()
+                    if winner == self.moved:
+                        return winner
+                    if winner == self.to_move:
+                        adversary_win = True
+        for c in range(self.cols):
+            for f in [lambda col=c: self.check_col(col),
+                          lambda col=c: self.check_diag1(0,col),
+                          lambda col=c: self.check_diag2(0,col)]:
+                    winner = f()
+                    if winner == self.moved:
+                        return winner
+                    if winner == self.to_move:
+                        adversary_win = True
+        if adversary_win:
+            return self.to_move
+        return None
  
 class MCTSNode:
     def __init__(self, game_state, parent=None, move=None):
